@@ -10,9 +10,9 @@ namespace SpectrumAnalyzer
         private FftProvider fftProvider;
         private WasapiLoopbackCapture wasapi;
         private const int numBars = 1024 * 8;
-        private const int density = numBars / (1024 * 2);
         private const int bytesPerPoint = 4;
         private int sampleRate;
+        private int maxBar;
 
         public FormMain()
         {
@@ -21,7 +21,7 @@ namespace SpectrumAnalyzer
 
             // Setup chart
 
-            for (int i = 0; i < numBars / density; i++)
+            for (int i = 0; i < numBars / 4; i++)
             {
                 chart1.Series[0].Points.AddXY(i, 0);
             }
@@ -41,6 +41,9 @@ namespace SpectrumAnalyzer
             var format = wasapi.WaveFormat;
             sampleRate = format.SampleRate;
             toolStripStatusLabel1.Text = $"WaveFormat: {format.SampleRate}Hz, {format.BitsPerSample} bits, {format.Channels} channel(s)";
+
+            maxBar = FreqToBar(20000);
+            Console.WriteLine(maxBar);
         }
 
         private void Wasapi_DataAvailable(object sender, DataAvailableEventArgs e)
@@ -50,12 +53,10 @@ namespace SpectrumAnalyzer
             float[] fft = new float[graphPoints];
             float[] fftReal = new float[graphPoints / 2];
 
-            double pcmPointSpacingMs = sampleRate / (density / 2);
-
             for (int i = 0; i < graphPoints; i++)
             {
                 var val = BitConverter.ToSingle(e.Data, i * bytesPerPoint);
-                pcm[i] = val; // * FastFourierTransformation.HammingWindowF(i, graphPoints);
+                pcm[i] = val;// * FastFourierTransformation.HammingWindowF(i, graphPoints);
             }
 
             fftProvider.Add(pcm, pcm.Length);
@@ -69,12 +70,24 @@ namespace SpectrumAnalyzer
                     if (!IsDisposed && !Disposing)
                         Invoke((MethodInvoker)delegate ()
                         {
-                            for (int i = 0; i / (float)(numBars / density) * pcmPointSpacingMs < 20000; i++)
+                            float maxX = 0;
+                            float maxY = 0;
+
+                            for (int i = 0; i < maxBar; i++)
                             {
-                                float amplitude = fftBuffer[i] * 200;
-                                chart1.Series[0].Points[i].SetValueXY(i / (float)(numBars / density) * pcmPointSpacingMs, amplitude);
+                                float amplitude = fftBuffer[i] * 1000;
+
+                                if (amplitude > maxY)
+                                {
+                                    maxY = amplitude;
+                                    maxX = BarToFreq(i);
+                                }
+
+                                chart1.Series[0].Points[i].SetValueXY(BarToFreq(i), amplitude);
                             }
+
                             chart1.Invalidate();
+                            toolStripStatusLabel2.Text = $"Peak: {maxX} Hz";
                         });
                 }
                 catch (ObjectDisposedException)
@@ -82,6 +95,16 @@ namespace SpectrumAnalyzer
 
                 }
             }
+        }
+
+        private int FreqToBar(float frequency)
+        {
+            return (int)(frequency / (float)sampleRate * numBars) / 2;
+        }
+
+        private float BarToFreq(int bar)
+        {
+            return (bar * (float)sampleRate / numBars) * 2;
         }
 
         private void Application_ApplicationExit(object sender, EventArgs e)
