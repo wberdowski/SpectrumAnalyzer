@@ -32,7 +32,7 @@ namespace SpectrumAnalyzer
                 chart1.Series[0].Points.AddXY(i, 0);
             }
 
-            chart1.ChartAreas[0].AxisY.Maximum = 300;
+            chart1.ChartAreas[0].AxisY.Maximum = 200;
             chart1.ChartAreas[0].AxisY.Minimum = 0;
 
             mWasapi = new WasapiLoopbackCapture(10);

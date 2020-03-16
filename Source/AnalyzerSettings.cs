@@ -8,9 +8,7 @@ namespace SpectrumAnalyzer
         public int NumBands { get; set; }
 
         public int MinFreq { get; set; } = 0;
-        public int MaxFreq { get; set; } = 400;
-
-        private int _numBands;
+        public int MaxFreq { get; set; } = 2000;
 
         public AnalyzerSettings(int numBands)
         {
