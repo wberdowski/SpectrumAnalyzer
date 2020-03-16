@@ -55,6 +55,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Source\FftBands.cs" />
     <Compile Include="Source\AnalyzerSettings.cs" />
     <Compile Include="Source\Forms\FormMain.cs">
       <SubType>Form</SubType>

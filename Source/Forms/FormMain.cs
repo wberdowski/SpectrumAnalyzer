@@ -11,7 +11,6 @@ namespace SpectrumAnalyzer
         private AnalyzerSettings mSettings;
         private WasapiLoopbackCapture mWasapi;
         private int _sampleOffset;
-        private Complex[] _storedSamples;
 
         public FormMain()
         {
@@ -20,30 +19,36 @@ namespace SpectrumAnalyzer
             Load += FormMain_Load;
 
             // Setup property grid
-            mSettings = new AnalyzerSettings(1024 * 8);
+            mSettings = new AnalyzerSettings();
+            mSettings.BandsNumberChanged += (s, e) =>
+            {
+                UpdateChartPoints();
+            };
             mSettings.FrequencyRangeChanged += (s, e) =>
             {
                 chart1.ChartAreas[0].AxisX.Minimum = mSettings.MinFreq;
                 chart1.ChartAreas[0].AxisX.Maximum = mSettings.MaxFreq;
             };
 
-            _storedSamples = new Complex[mSettings.NumBands];
             propertyGrid1.SelectedObject = mSettings;
 
-
             // Setup chart
-
-            for (int i = 0; i < mSettings.NumBands; i++)
-            {
-                chart1.Series[0].Points.AddXY(i, 0);
-            }
+            UpdateChartPoints();
 
             chart1.ChartAreas[0].AxisY.Maximum = 0.1D;
             chart1.ChartAreas[0].AxisY.Minimum = 0;
+
             chart1.ChartAreas[0].AxisX.Minimum = mSettings.MinFreq;
             chart1.ChartAreas[0].AxisX.Maximum = mSettings.MaxFreq;
+        }
 
-
+        private void UpdateChartPoints()
+        {
+            chart1.Series[0].Points.Clear();
+            for (int i = 0; i < (int)mSettings.NumBands; i++)
+            {
+                chart1.Series[0].Points.AddXY(i, 0);
+            }
         }
 
         private void FormMain_Load(object sender, EventArgs e)
@@ -60,43 +65,53 @@ namespace SpectrumAnalyzer
 
         private void Wasapi_DataAvailable(object sender, DataAvailableEventArgs e)
         {
-            float[] samples = PrepareSamples(e.Data, e.ByteCount);
-
-            int channels = 2;
-            for (int i = 0; i < samples.Length; i += channels)
-            {
-                float s = MergeSamples(samples, i, channels);
-                _storedSamples[_sampleOffset] = new Complex(s, 0f);
-
-                _sampleOffset += 1;
-
-                if (_sampleOffset >= _storedSamples.Length)
-                {
-                    _sampleOffset = 0;
-                }
-            }
-
-            float[] fft = new float[mSettings.NumBands];
-
-            // Compute FFT and store it in the buffer
-            ComputeFft(fft);
-
+            _sampleOffset = 0;
             try
             {
+                Complex[] _storedSamples = new Complex[(int)mSettings.NumBands];
+
+                float[] samples = PrepareSamples(e.Data, e.ByteCount);
+
+                int channels = 2;
+                for (int i = 0; i < samples.Length; i += channels)
+                {
+                    float s = MergeSamples(samples, i, channels);
+                    _storedSamples[_sampleOffset] = new Complex(s, 0f);
+
+                    _sampleOffset += 1;
+
+                    if (_sampleOffset >= _storedSamples.Length)
+                    {
+                        _sampleOffset = 0;
+                    }
+                }
+
+                float[] fft = new float[(int)mSettings.NumBands];
+
+                // Compute FFT and store it in the buffer
+                fft = ComputeFft(_storedSamples);
+
+
                 if (!IsDisposed && !Disposing)
                     Invoke((MethodInvoker)delegate ()
                     {
-                        for (int a = 0; a < fft.Length; a++)
+                        try
                         {
-                            double amplitude = fft[a];
+                            for (int a = 0; a < fft.Length; a++)
+                            {
+                                double amplitude = fft[a] * (mSettings.Exponent - 9);
 
-                            chart1.Series[0].Points[a].SetValueXY(BarToFreq(a), amplitude);
+                                chart1.Series[0].Points[a].SetValueXY(BarToFreq(a), amplitude);
+                            }
+
+                            chart1.Invalidate();
+                        } catch (Exception)
+                        {
+
                         }
-
-                        chart1.Invalidate();
                     });
             }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
 
             }
@@ -120,30 +135,29 @@ namespace SpectrumAnalyzer
             return z / channelCount;
         }
 
-        private void ComputeFft(float[] resultBuffer)
+        private float[] ComputeFft(Complex[] samples)
         {
-            Complex[] input = new Complex[_storedSamples.Length];
+            float[] resultBuffer = new float[samples.Length / 2];
+            FastFourierTransformation.Fft(samples, mSettings.Exponent);
 
-            _storedSamples.CopyTo(input, 0);
-
-            FastFourierTransformation.Fft(input, (int)Math.Truncate(Math.Log(mSettings.NumBands, 2)));
-
-            for (int i = 0; i <= input.Length / 2 - 1; i++)
+            for (int i = 0; i < samples.Length / 2; i++)
             {
-                var z = input[i];
+                var z = samples[i];
                 resultBuffer[i] = (float)z.Value;
             }
+
+            return resultBuffer;
         }
 
 
         private int FreqToBar(float frequency)
         {
-            return (int)(frequency * mSettings.NumBands / mWasapi.WaveFormat.SampleRate);
+            return (int)(frequency * (int)mSettings.NumBands / (float)mWasapi.WaveFormat.SampleRate);
         }
 
         private float BarToFreq(int bar)
         {
-            return bar * (float)mWasapi.WaveFormat.SampleRate / mSettings.NumBands;
+            return bar * mWasapi.WaveFormat.SampleRate / (float)mSettings.NumBands;
         }
 
         private void Application_ApplicationExit(object sender, EventArgs e)
